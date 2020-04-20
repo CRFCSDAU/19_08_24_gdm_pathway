@@ -1,0 +1,1150 @@
+---
+title: ''
+author: ''
+date: ''
+output:
+  html_document:
+    df_print: paged
+  word_document:
+    reference_docx: style.1.docx
+---
+
+```{r setup, include = FALSE}
+
+  knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, 
+                        fig.width  = 6 * 1.67, fig.height = 6)
+
+ source("scripts/data.R")
+  source("scripts/functions.R")
+#  load("data.RData")
+
+  library(pander)
+  library(ggrepel)
+  library(tidyverse)
+  library(viridis)
+  library(knitr)
+
+```
+
+
+```{r}
+
+# Live singletons
+  data <- filter(data, live_infant_1 == "Alive" & is.na(live_infant_2))
+
+```
+
+
+```{r}
+
+  data <- rename(data, pn_ogtt_date= post_natal_ogtt)
+  data$pn_ogtt_date <- as.numeric(data$pn_ogtt_date)
+  data$pn_ogtt_date[data$pn_ogtt_date == 0] <- NA
+  data$pn_ogtt_date[data$pn_ogtt_date > 50000] <- NA
+
+  data$pn_ogtt_date <- as.POSIXct(as.numeric(data$pn_ogtt_date) * 60 * 60 * 24,
+             origin = "1899-12-30") # A few additional missing with this.
+  
+
+```
+
+
+```{r}
+
+   dates <- select(data, first_clinic_date, gdm_date, gtt_location,
+                   days_from_dx_to_clinic, id, year) 
+
+   dates$diff <- difftime(dates$gdm_date, dates$first_clinic_date, 
+                          units = "days")
+   
+   with(dates, plot(diff, days_from_dx_to_clinic))# match
+
+
+   dates <- gather(dates, event, date, contains("date")) %>% 
+       mutate(date = as.POSIXct(date,  origin="1970-01-01")) %>%
+       mutate(id_new = reorder(interaction(id, year), days_from_dx_to_clinic))
+   
+   ggplot(dates, aes(x = date)) +
+     geom_histogram() +
+     facet_wrap(~year)
+
+  ggplot(dates, aes(x = date, y = id_new, color = event)) +
+    geom_point() + 
+    facet_wrap(~gtt_location, ncol = 1)
+  
+  ggplot(filter(data, !is.na(gtt_location) & days_from_dx_to_clinic >= 0), 
+         aes(x = days_from_dx_to_clinic, fill = gtt_location)) +
+    geom_histogram(color = "black") +
+    scale_fill_viridis("OGTT Location", discrete = TRUE) +
+    facet_wrap(~gtt_location, ncol = 1, scales = "free_y") +
+    xlab("Days between OGTT and first clinic visit") +
+    ylab("Number of women") +
+    theme_minimal() +
+    theme(panel.grid.minor = element_blank())
+  
+  ggsave("plots/grow.png", height = 10, width = 16.7,
+         units = "cm", scale = 1, limitsize = FALSE)
+  
+  
+```
+
+
+```{r}
+  pander(lm(del_gstdays ~ days_from_dx_to_clinic + gtt_location, data = data)) 
+
+  filter(data, !is.na(gtt_location) & days_from_dx_to_clinic >= 0 &
+           del_gstweeks > 30) %>%
+  ggplot(aes(x = days_from_dx_to_clinic, y = del_gstweeks)) +
+     geom_point(aes(color = gtt_location)) +
+     geom_smooth(se = FALSE, method = "lm") +
+     scale_color_viridis(discrete = TRUE)
+
+
+
+```
+
+
+
+# Growth
+
+```{r}
+  descript <- select(data, 
+                     sex, del_gstweeks,
+                     birth_weight_1, grow, grow_centile, igb_wt_centile,
+                     macrosomic_4, macrosomic_4.5, grow_size_ga, igb_size_ga, 
+                     age, irish_eth, risky_eth, parity, height, weight, bmi,
+                     bmi_class)
+
+  data_frame(Variable = name.1(descript),
+             N   = n.miss(descript),
+             "Mean \u00B1 SD or N(%)" = summary.1(descript), 
+             "Med [IQR]" = summary.2(descript), 
+             "(Min, Max)" = min.max(descript)) %>% knitr::kable()
+  
+```
+
+
+## GROW
+
+```{r}
+
+  ggplot(data, aes(x = hba1c_at_diagnosis, y = grow_diff, color = grow_centile)) +
+    geom_point(alpha = 0.5) +
+    geom_abline() +
+    scale_color_viridis("GROW centile", alpha = 0.5, direction = -1) +
+    theme_minimal() +
+    xlab("Birthweight (g)") +
+    ylab("GROW")
+
+  ggsave("plots/grow.tiff", height = 10, width = 16.7, dpi = 600, device = "tiff", 
+         units = "cm", scale = 0.8, limitsize = FALSE)
+```
+
+```{r}
+   select(data, birth_weight_1, grow) %>%
+     gather(var, val) %>%
+     mutate(var = factor(var, labels = c("Birthweight", "GROW"))) %>%
+   ggplot(aes(fill = var, x = val)) +
+    geom_density(color = "black", alpha = 0.5) +
+    scale_fill_viridis("", discrete = TRUE) +
+    theme_minimal() +
+    xlab("Birthweight or GROW (g)") +
+    ylab("Density")
+
+ggsave("plots/grow2.tiff", height = 10, width = 16.7, dpi = 600, device = "tiff", 
+         units = "cm", scale = 0.8, limitsize = FALSE)
+```
+
+```{r}
+
+  ggplot(data,
+         aes(x = birth_weight_1, y = grow_centile, color = del_gstweeks)) +
+    geom_point(alpha = 0.5) +
+    scale_color_viridis("GW", direction = -1) +
+    theme_minimal() +
+    xlab("Birthweight (g)") +
+    ylab("GROW Centile")
+
+```
+
+```{r}
+
+  ggplot(data, aes(x = tow, y = grow, color = del_gstweeks)) +
+    geom_point(alpha = 0.5) +
+    scale_color_viridis("GW", direction = -1) +
+    geom_abline() +
+    theme_minimal() +
+    xlab("TOW") +
+    ylab("GROW")
+
+```
+
+
+## Intergrowth
+
+```{r}
+
+  ggplot(data,
+         aes(x = birth_weight_1, y = igb_wt_centile, color = del_gstweeks)) +
+    geom_point(alpha = 0.5) +
+    scale_color_viridis("GW", direction = -1) +
+    theme_minimal() +
+    xlab("Birthweight (g)") +
+    ylab("Intergrowth Standard Centile")
+
+```
+
+## Intergrowth vs GROW
+
+```{r}
+
+  ggplot(data,
+         aes(x = grow_centile, y = igb_wt_centile, color = birth_weight_1)) +
+    geom_point(alpha = 0.3, size = 0.7) +
+    scale_color_viridis("Birthweight (g)", direction = -1) +
+    theme_minimal() +
+    geom_abline() +
+    coord_fixed() +
+    xlab("GROW Centile") +
+    ylab("Intergrowth Standard Centile")
+
+ggsave("plots/centiles.tiff", height = 10, width = 16.7, dpi = 600, device = "tiff", 
+         units = "cm", scale = 0.8, limitsize = FALSE)
+
+```
+
+
+Objective: We aimed to describe the weights of singleton live births born to a cohort of women with Gestational Diabetes Mellitus (GDM) and identify predictors of larger than optimal growth. 
+
+Method: We analyzed data from 1181 women attending the Diabetes in Pregnancy Clinic between the years of 2014-2016. We calcuated customised weight centiles using the GROW method for 1016 of the infants at birth. 
+
+Results: The distribution of GROW centiles was notably skewed towards higher values (mean±SD = 59.1 ± 30.4; median[IQR] = 63.9 [33.8, 87]. While 14% and 2.1% for the infants had a birthweight greater than 4 or 4.5 kg, repspectively, 20.7% had a GROW centile >= 90. The birth weight of a mother's previous infant, HBA1C and +2 hour fasting glucose at screening were strong predictors of larger than optimal (GROW) birth weight. There was a crude association between metformin use and lower GROW centiles, but this was nullfied by adjustment for key case-mix variables measured around the time of screening.
+
+Conclusions: LGA infants, based on having a GROW centile >= 90, were common in this cohort. We obserfved no strong associations between treatment options and infant GROW centile. 
+
+# Predictors
+
+```{r}
+
+  pander(lm(grow_diff ~ gtt_location, data = data))
+  pander(lm(grow_diff ~ gtt_gstweeks, data = data))
+  pander(lm(grow_diff ~ bmi, data = data))
+  pander(lm(grow_diff ~ age, data = data))
+  pander(lm(grow_diff ~ no_of_previous_gdm_episodes, data = data))
+  pander(lm(grow_diff ~ risky_eth, data = data))
+  pander(lm(grow_diff ~ weight_of_biggest_baby, data = data))
+  pander(lm(grow_diff ~ hba1c_at_diagnosis, data = data))
+  pander(lm(grow_diff ~ fasting, data = data))
+  pander(lm(grow_diff ~ x2hr_pp, data = data))
+  
+  
+  pander(lm(grow_diff ~ diet_only, data = data))
+  pander(lm(grow_diff ~ metformin, data = data))
+  pander(lm(grow_diff ~ basal_insulin, data = data))
+  pander(lm(grow_diff ~ prandial_insulin, data = data))
+
+  
+```
+
+
+```{r}
+  pander(lm(grow_diff ~ metformin + bmi + no_of_previous_gdm_episodes +
+                weight_of_biggest_baby + hba1c_at_diagnosis + x2hr_pp, data = data))
+```
+
+
+```{r}
+  pander(lm(grow_centile ~ metformin + bmi + no_of_previous_gdm_episodes +
+                weight_of_biggest_baby + hba1c_at_diagnosis, data = data))
+
+  pander(lm(grow_centile ~ metformin, data = data))
+```
+
+# GTT screening
+
+This is a plot of fasting and 2-hour gluose values, for women with both measures. 
+The yellow markers are women with 1-hour glucose >= 10 mmol. There are a few
+women who don't seem to meet any of these criteria. 
+
+```{r}
+
+  ggplot(data, aes(x = fasting, y = x2hr_pp)) +
+  	geom_point(alpha = 0.2, color = viridis(1)) +
+  	geom_point(data = filter(data, x1hr_pp >= 10),
+  						 color = viridis(2)[2]) +
+  	geom_hline(yintercept = 8.5) +
+  	geom_vline(xintercept = 5.1) +
+  	ggtitle(paste("Fasting and 2-hour blood glucose (n = ",
+  								nrow(data[!is.na(data$fasting) & !is.na(data$x2hr_pp), ]),
+  								")", sep = "")) +
+  	xlab("Fasting (mmol)") +
+  	ylab("2-hour (mmol)") +
+    theme_minimal()
+```
+Note: Several women who fall under the criteria for both fasting and +2 hour glucose are also missing data for the + 1 hour value. 
+
+```{r}
+
+  descript <- select(data, contains("criteria"))
+
+  data_frame(Variable = name.1(descript),
+             N   = n.miss(descript),
+             "N (%)" = summary.1(descript)) %>% knitr::kable()
+  
+```
+
+## Timing of GTT
+
+**Figure 1** Distribution of gestational ages when the GTT was administered. 
+
+```{r}
+
+  ggplot(data, aes(x = gtt_gstweeks)) +
+  	geom_bar(fill = viridis(1)) +
+  	ggtitle(paste("Gestational age when GTT was given (n = ",
+  								nrow(data[!is.na(data$gtt_gstweeks), ]),
+  								")", sep = "")) +
+  	ylab("Number of patients") +
+  	xlab("Gestational age (weeks)") +
+    theme_minimal() +
+    geom_vline(xintercept = 24, color = "black", linetype = "dashed") +
+    geom_vline(xintercept = 30, color = "black", linetype = "dashed")
+
+
+
+```
+
+```{r}
+
+  pander(cont_table_1(table(data$gtt_location)))
+
+```
+Note: `r table(is.na(data$gtt_location))["TRUE"]` missing data for location of GTT. 
+
+**Figure 2**  Distribution of gestational ages when the GTT was administered, by location. 
+```{r}
+
+  ggplot(filter(data, !is.na(gtt_location)), aes(x = gtt_gstweeks)) +
+  	geom_bar(fill = viridis(1)) +
+  	ggtitle(paste("Gestational age when GTT was given (n = ",
+  								nrow(data[!is.na(data$gtt_gstweeks), ]),
+  								")", sep = "")) +
+  	ylab("Number of patients") +
+  	xlab("Gestational age (weeks)") +
+    theme_minimal() +
+    facet_wrap(~gtt_location, ncol = 1) +
+    geom_vline(xintercept = 24, color = "black", linetype = "dashed") +
+    geom_vline(xintercept = 30, color = "black", linetype = "dashed")
+
+
+
+```
+
+```{r}
+
+  pander(lm(gtt_gstweeks ~ gtt_location, data = data))
+
+```
+
+
+```{r}
+
+  tbl <- cont_table_2(table(data$gtt_location, data$gdm_gest_cat))
+  pander(tbl)
+  
+  pander(chisq.test(data$gtt_location, data$gdm_gest_cat))
+  
+```
+No association between the location of the GTT and the gestational week it was administered. 
+
+
+## How is gestational weeks at GTT associated with predictors and screening factors? 
+
+### BMI
+
+```{r}
+
+  filter(data, !is.na(gdm_gest_cat)) %>%
+  ggplot(aes(y = bmi, x = gtt_gstweeks, color = gdm_gest_cat)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(color = "black", se = FALSE) +
+      geom_smooth(method = "lm", color = "black", linetype = "dashed", 
+                  se = FALSE) +
+    scale_color_viridis("", discrete = TRUE) +
+    theme_minimal() +
+    xlab("Gestational weeks at GTT") +
+    ylab("BMI") +
+    geom_vline(xintercept = 24, color = "black", linetype = "dashed") +
+    geom_vline(xintercept = 30, color = "black", linetype = "dashed")
+    
+```
+
+```{r}
+
+  filter(data, !is.na(gdm_gest_cat)) %>%
+  ggplot(aes(x = bmi, fill = gdm_gest_cat, color = gdm_gest_cat)) +
+    geom_density(alpha = 0.3, color = "black") +
+    geom_rug(alpha = 0.3) +
+    scale_color_viridis(guide = FALSE, discrete = TRUE) +
+    scale_fill_viridis("Gestational weeks at GTT", discrete = TRUE) +
+    theme_minimal() +
+    xlab("BMI")
+    
+```
+
+
+```{r}
+
+  pander(lm(bmi ~ gtt_gstweeks, data = data))
+
+  pander(lm(bmi ~ gdm_gest_cat, data = data))
+
+
+```
+Conclusion: Larger women are picked up earlier. 
+
+### Age
+
+```{r}
+
+  filter(data, !is.na(gdm_gest_cat)) %>%
+  ggplot(aes(y = age, x = gtt_gstweeks, color = gdm_gest_cat)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(color = "black", se = FALSE) +
+      geom_smooth(method = "lm", color = "black", linetype = "dashed", 
+                  se = FALSE) +
+    scale_color_viridis("", discrete = TRUE) +
+    theme_minimal() +
+    xlab("Gestational weeks at GTT") +
+    ylab("Age") +
+    geom_vline(xintercept = 24, color = "black", linetype = "dashed") +
+    geom_vline(xintercept = 30, color = "black", linetype = "dashed")
+    
+```
+
+```{r}
+
+  filter(data, !is.na(gdm_gest_cat)) %>%
+  ggplot(aes(x = age, fill = gdm_gest_cat, color = gdm_gest_cat)) +
+    geom_density(alpha = 0.3, color = "black") +
+    geom_rug(alpha = 0.3) +
+    scale_color_viridis(guide = FALSE, discrete = TRUE) +
+    scale_fill_viridis("Gestational weeks at GTT", discrete = TRUE) +
+    theme_minimal() +
+    xlab("Age")
+    
+```
+
+
+```{r}
+
+  pander(lm(age ~ gtt_gstweeks, data = data))
+
+  pander(lm(age ~ gdm_gest_cat, data = data))
+
+```
+Conclusion: Older women are picked up earlier. 
+
+### Previous GDM
+
+```{r}
+
+  tbl <- cont_table_2(table(data$no_of_previous_gdm_episodes, data$gdm_gest_cat))
+  pander(tbl)
+  
+  pander(chisq.test(data$no_of_previous_gdm_episodes, data$gdm_gest_cat))
+  
+```
+
+```{r}
+
+  filter(data, !is.na(no_of_previous_gdm_episodes)) %>%
+  ggplot(aes(x = gtt_gstweeks, fill = no_of_previous_gdm_episodes, 
+             color = no_of_previous_gdm_episodes)) +
+    geom_density(alpha = 0.3, color = "black") +
+    geom_rug(alpha = 0.3) +
+    scale_color_viridis(guide = FALSE, discrete = TRUE) +
+    scale_fill_viridis("Previous GDM pregnancies", discrete = TRUE) +
+    theme_minimal() +
+    xlab("Gestational weeks at GTT") +
+    geom_vline(xintercept = 24, color = "black", linetype = "dashed") +
+    geom_vline(xintercept = 30, color = "black", linetype = "dashed")
+    
+```
+
+
+```{r}
+
+  pander(lm(gtt_gstweeks ~ no_of_previous_gdm_episodes, data = data))
+
+```
+Conclusion: Previous GDM is a clear predictor of earlier GTT.
+
+## Risky ethnicity
+
+```{r}
+
+  tbl <- cont_table_2(table(data$risky_eth, data$gdm_gest_cat))
+  pander(tbl)
+  
+  pander(chisq.test(data$risky_eth, data$gdm_gest_cat))
+  
+```
+
+```{r}
+
+  filter(data, !is.na(risky_eth)) %>%
+  ggplot(aes(x = gtt_gstweeks, fill = risky_eth, 
+             color = risky_eth)) +
+    geom_density(alpha = 0.3, color = "black") +
+    geom_rug(alpha = 0.3) +
+    scale_color_viridis(guide = FALSE, discrete = TRUE) +
+    scale_fill_viridis("Risky ethnicity", discrete = TRUE) +
+    theme_minimal() +
+    xlab("Gestational weeks at GTT") +
+    geom_vline(xintercept = 24, color = "black", linetype = "dashed") +
+    geom_vline(xintercept = 30, color = "black", linetype = "dashed")
+    
+```
+
+
+```{r}
+
+  pander(lm(gtt_gstweeks ~ risky_eth, data = data))
+
+```
+Conclusion: A bit more early detection if yes. 
+
+## Previous PCOS
+
+```{r}
+
+  tbl <- cont_table_2(table(data$phx_pcos, data$gdm_gest_cat))
+  pander(tbl)
+  
+  pander(chisq.test(data$phx_pcos, data$gdm_gest_cat))
+  
+```
+
+```{r}
+
+  filter(data, !is.na(phx_pcos)) %>%
+  ggplot(aes(x = gtt_gstweeks, fill = phx_pcos, 
+             color = phx_pcos)) +
+    geom_density(alpha = 0.3, color = "black") +
+    geom_rug(alpha = 0.3) +
+    scale_color_viridis(guide = FALSE, discrete = TRUE) +
+    scale_fill_viridis("Previous PCOS", discrete = TRUE) +
+    theme_minimal() +
+    xlab("Gestational weeks at GTT") +
+    geom_vline(xintercept = 24, color = "black", linetype = "dashed") +
+    geom_vline(xintercept = 30, color = "black", linetype = "dashed")
+    
+```
+
+```{r}
+
+  pander(lm(gtt_gstweeks ~ phx_pcos, data = data))
+
+```
+Conclusion: Maybe a very small effect. Noting to write home about. 
+
+## Weght of biggest previous baby
+
+weight_of_biggest_baby
+
+```{r}
+
+  filter(data, !is.na(gdm_gest_cat)) %>%
+  ggplot(aes(y = weight_of_biggest_baby, x = gtt_gstweeks, color = gdm_gest_cat)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(color = "black", se = FALSE) +
+      geom_smooth(method = "lm", color = "black", linetype = "dashed", 
+                  se = FALSE) +
+    scale_color_viridis("", discrete = TRUE) +
+    theme_minimal() +
+    xlab("Gestational weeks at GTT") +
+    ylab("Weight of biggest previous baby") +
+    geom_vline(xintercept = 24, color = "black", linetype = "dashed") +
+    geom_vline(xintercept = 30, color = "black", linetype = "dashed")
+    
+```
+Conclusion: No relationship. 
+
+
+```{r}
+
+  filter(data, !is.na(gdm_gest_cat)) %>%
+  ggplot(aes(x = bmi, fill = gdm_gest_cat, color = gdm_gest_cat)) +
+    geom_density(alpha = 0.3, color = "black") +
+    geom_rug(alpha = 0.3) +
+    scale_color_viridis(guide = FALSE, discrete = TRUE) +
+    scale_fill_viridis("Gestational weeks at GTT", discrete = TRUE) +
+    theme_minimal() +
+    xlab("BMI")
+    
+```
+
+
+```{r}
+
+  pander(lm(bmi ~ gtt_gstweeks, data = data))
+
+  pander(lm(bmi ~ gdm_gest_cat, data = data))
+
+```
+
+
+Distribution of HBA1c
+
+```{r, echo = FALSE, warning = FALSE}
+  summary(data$hba1c_at_diagnosis)
+
+  ggplot(data, aes(x = hba1c_at_diagnosis)) +
+  	geom_bar(fill = viridis(1)) +
+  	ggtitle(paste("HBA1c (n = ",
+  								nrow(data[!is.na(data$hba1c_at_diagnosis), ]),
+  								")", sep = "")) +
+  	ylab("Number of patients") +
+  	xlab("HBA1c")
+
+```
+
+
+# Early vs late detection
+
+<24 weeks vs > 30
+
+Remove planned sections
+
+
+
+```{r}
+  
+  ggplot(data, aes(x = gdm_gstdays, y = bmi)) +
+    geom_point() +
+    geom_smooth()
+
+```
+
+
+# Questions
+
+If we could look at some to the following:
+
+1. Ethnicity of group
+
+2. Age of our mothers any change over 3 years
+
+3. BMI- again any change over 3 years (where available for full group look at weight gain in pregnancy and any link with outcomes/infant size, delivery method, sub-group where body composition was available any link any associations)
+
+4. Mean week gestation at diagnosis of GDM (any change with time)
+
+5. Where were these women diagnosed, a link with place of diagnosis length of time to  first consultation- very important as those dx with GP often missed and not seen for significant number of days- can we look at the group when GTT was performed by GP and outcomes- has this changed over the 3 years
+
+6. Treatment modality- % diet/% metformin/% insulin and again changes over the years- how many seen by endocrinologist
+
+7. Mean week of delivery (for whole group, any change over the years)
+
+8. Delivery method/labour interventions whole group/any change over the years
+
+9. Adverse maternal outcomes
+
+10.	Birth weight of infant/% LGA, % SGA
+
+11.	Admission to neo/length of stay (not available on full group)
+
+12.	Numbers breastfeeding on d/c- exclusive breast feeding/supplementary feeding
+
+13.	Number at high risk of Diabetes/abnormal OGGT, fasting glucose or HbA1c post partum- numbers who did not have OGGT done.
+
+# Analysis
+
+Overall, there were `r nrow(data)` observations in the combinded data set (2016 n = `r nrow(data[data$year == "2016", ])`; 2015 n = `r nrow(data[data$year == "2015", ])`; 2014 n = `r nrow(data[data$year == "2014", ])`)
+
+## Outcomes
+
+### Birth weight
+
+Figure. Birth weight distribution by year
+```{r}
+  
+  ggplot(data, aes(x = birth_weight_1)) +
+    geom_histogram(fill = viridis(1, begin = 0.5)) +
+    facet_wrap(~year, ncol = 1) +
+    theme_minimal() +
+    xlab("Birth weight (g)") +
+    ylab("n")
+    
+```
+
+Table. Regression of mean age on year. 
+```{r}
+
+  pander(lm(birth_weight_1 ~ factor(year), data = data))
+  
+```
+
+No substntial difference in the mean of BW across years. 
+
+### Macrosomic
+
+The original in the dataset is a bit of a mess, so this was recreated from birth weight.
+
+Table. Macrosomic in infant by year
+```{r}
+  
+  pander(with(data, ftable(year, macrosomic_4.5, exclude = NULL, 
+                          dnn = list("Year", "Macrosomic 4.5kg"))))
+```
+
+```{r}
+  
+  pander(with(data, ftable(year, macrosomic_4, exclude = NULL, 
+                          dnn = list("Year", "Macrosomic 4 kg"))))
+```
+
+```{r}
+  
+  ggplot(data, aes(x = year, fill = macrosomic_4)) +
+    geom_bar(position = "fill") +
+    theme_minimal() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_viridis(">4kg", discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey") +
+    ylab("Percentage of infants") +
+    xlab("")
+  
+```
+
+
+### Hypoglycaemia in infant
+
+This really only had data for 2014 and that was spotty. 
+
+Table. Hypoglycaemia in infant by year
+```{r}
+  
+  pander(with(data, ftable(year, hypoglycaemia_in_infant, exclude = NULL, 
+                          dnn = list("Year", "Hypoglycaemia"))))
+```
+
+### Induction
+
+```{r}
+  
+  pander(with(data, ftable(year, induction, exclude = NULL, 
+                          dnn = list("Year", "Induction"))))
+```
+
+```{r}
+
+  ggplot(data, aes(x = year, fill = induction)) +
+    geom_bar(position = "fill") +
+    theme_minimal() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_viridis("Induction", discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey") +
+    ylab("Percentage of infants") +
+    xlab("")
+  
+```
+
+### Instrumental Delivery
+
+```{r}
+  
+  pander(with(data, ftable(year, instrumental_delivery, exclude = NULL, 
+                          dnn = list("Year", "Instrumental Delivery"))))
+```
+
+```{r}
+
+  ggplot(data, aes(x = year, fill = instrumental_delivery)) +
+    geom_bar(position = "fill") +
+    theme_minimal() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_viridis("Induction", discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey") +
+    ylab("Percentage of deliveries") +
+    xlab("")
+  
+```
+
+### Shoulder dystocia
+
+```{r}
+  
+  pander(with(data, ftable(year, shoulder_dystocia, exclude = NULL, 
+                          dnn = list("Year", "Shoulder dystocia"))))
+```
+
+# PPH
+
+```{r}
+  
+  pander(with(data, ftable(year, pph, exclude = NULL, 
+                          dnn = list("Year", "PPH"))))
+```
+
+```{r}
+
+  ggplot(data, aes(x = year, fill = pph)) +
+    geom_bar(position = "fill") +
+    theme_minimal() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_viridis("PPH", discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey") +
+    ylab("Percentage of infants") +
+    xlab("")
+  
+```
+
+# Any maternal trauma
+
+```{r}
+  
+  pander(with(data, ftable(year, any_maternal_trauma, exclude = NULL, 
+                          dnn = list("Year", "Any maternal trauma"))))
+```
+
+```{r}
+
+  ggplot(data, aes(x = year, fill = any_maternal_trauma)) +
+    geom_bar(position = "fill") +
+    theme_minimal() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_viridis("Any maternal trauma", discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey") +
+    ylab("Percentage of infants") +
+    xlab("")
+  
+```
+
+# NICU
+
+```{r}
+  
+  pander(with(data, ftable(year, nicu_admission, exclude = NULL, 
+                          dnn = list("Year", "NICU"))))
+```
+
+```{r}
+
+  ggplot(data, aes(x = year, fill = nicu_admission)) +
+    geom_bar(position = "fill") +
+    theme_minimal() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_viridis("NICU", discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey") +
+    ylab("Percentage") +
+    xlab("")
+  
+```
+
+
+## 1. Ethnicity of group
+
+Ethnicity/Nationality will require quite a bit more work to be useful (see Appendix 1), plus there are lots of missing values in 2014. For now, I have created new variables to reflect Irish vs Not Irish ethnicity and nationality. In the future, you'll want clearly defined categories for ethnicity, that are distinct from nationality or country of origin, and you'll likely want an additional field to flag those that are considered high risk for GDM. 
+
+Missing values for ethnicity:
+2016 - `r table(is.na(data[data$year == "2016", ]$ethnicity))["TRUE"]`/ `r nrow(data[data$year == "2016", ])`; 
+2015 - `r table(is.na(data[data$year == "2015", ]$ethnicity))["TRUE"]` / `r nrow(data[data$year == "2015", ])`; 
+2014 - `r table(is.na(data[data$year == "2014", ]$ethnicity))["TRUE"]` / `r nrow(data[data$year == "2014", ])`; 
+
+Missing values for nationality:
+2016 - `r table(is.na(data[data$year == "2016", ]$nationality))["TRUE"]`/ `r nrow(data[data$year == "2016", ])`; 
+2015 - `r table(is.na(data[data$year == "2015", ]$nationality))["TRUE"]` / `r nrow(data[data$year == "2015", ])` ;
+2014 - `r table(is.na(data[data$year == "2014", ]$nationality))["TRUE"]` / `r nrow(data[data$year == "2014", ])` ;
+
+```{r table_irish}
+
+  t_eth <- with(data, 
+    table(irish_eth, irish_nat, dnn =c("Irish Ethnicity", "Irish Nationality"))
+    )
+  
+  pander(descr::CrossTable(t_eth, prop.t = FALSE, prop.chisq = FALSE, chisq = FALSE))
+
+```
+
+```{r eth_nat_year}
+
+  select(data, year, irish_nat, irish_eth) %>%
+    gather(variable, value, contains("irish")) %>%
+    mutate(variable = factor(variable, 
+                             labels = c("Ethnicity", "Nationality"))) %>%
+  ggplot(aes(x = variable, fill = value)) +
+    geom_bar(position = "fill") +
+    facet_wrap(~year, nrow = 1) +
+    theme_minimal() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_viridis("", discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey") +
+    xlab("Percentage of women")
+  
+
+```
+
+Figure. Ten most common recorded ethnicities
+```{r plot_ethnicity_top10}
+
+  filter(data, !is.na(ethnicity)) %>%
+    group_by(ethnicity) %>% 
+    summarise(n = n()) %>% 
+    mutate(ethnicity = reorder(factor(ethnicity), n)) %>%
+    filter(ethnicity %in% rev(levels(ethnicity))[1:10]) %>%
+  ggplot(aes(x = ethnicity, fill = ethnicity, y = n)) +
+    geom_bar(stat = "identity") +
+    theme_minimal() +
+    scale_fill_viridis(guide = FALSE, discrete = TRUE) +
+    coord_flip() +
+    xlab("Recorded Ethnicity")
+  
+```
+
+### Risky ethnicity
+
+From https://www.hse.ie/eng/health/az/d/diabetes,-gestational/diagnosing-gestational-diabetes-.html
+
+Your family origins are South Asian (specifically India, Pakistan or Bangladesh), black Caribbean or Middle Eastern (specifically Saudi Arabia, United Arab Emirates, Iraq, Jordan, Syria, Oman, Qatar, Kuwait, Lebanon or Egypt)  
+
+Note: I have also included all the African nations, based on what we did before. 
+
+```{r}
+
+  ggplot(data, aes(x = year, fill = risky_eth)) +
+    geom_bar(position = "fill") +
+    theme_minimal() +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_viridis("", discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey")
+```
+
+## 2. Age of our mothers any change over 3 years
+
+Missing values for maternal age:
+2016 - `r table(is.na(data[data$year == "2016", ]$age))["TRUE"]`/ `r nrow(data[data$year == "2016", ])` ;
+2015 - `r table(is.na(data[data$year == "2015", ]$age))["TRUE"]` / `r nrow(data[data$year == "2015", ])` ;
+2014 - `r table(is.na(data[data$year == "2014", ]$age))["TRUE"]` / `r nrow(data[data$year == "2014", ])` ;
+
+#### Figure. Maternal age distribution by year
+```{r age_year}
+  
+  ggplot(data, aes(x = age)) +
+    geom_histogram(fill = viridis(1, begin = 0.5)) +
+    facet_wrap(~year, ncol = 1) +
+    theme_minimal() +
+    xlab("Age (years)") +
+    ylab("n")
+    
+```
+
+#### Table. Regression of mean age on year. 
+```{r}
+
+  pander(lm(age ~ factor(year), data = data))
+  
+```
+
+The mean age in 2016 is a touch higher, partly driven by a small uptick in the moms over 40 years of age. 
+
+Figure. Percentage of moms over 40 years of age. 
+```{r}
+
+  ggplot(filter(data, !is.na(age)), aes(x = year, fill = over_40)) +
+    geom_bar(position = "fill") +
+    scale_y_continuous(labels = scales::percent) +
+    theme_minimal() +
+    xlab("") +
+    ylab("Percentage of women") +
+    scale_fill_viridis("Woman over 40y of age", discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey")
+
+```
+
+```{r}
+  pander(chisq.test(table(data$year, data$over_40)))
+```
+No strong evidence of a change over years. 
+
+
+## BMI - again any change over 3 years (where available for full group look at weight gain in pregnancy and any link with outcomes/infant size, delivery method, sub-group where body composition was available any link any associations)
+
+Missing values for BMI:
+2016 - `r table(is.na(data[data$year == "2016", ]$bmi))["TRUE"]`/ `r nrow(data[data$year == "2016", ])` ;
+2015 - `r table(is.na(data[data$year == "2015", ]$bmi))["TRUE"]` / `r nrow(data[data$year == "2015", ])` ;
+2014 - `r table(is.na(data[data$year == "2014", ]$bmi))["TRUE"]` / `r nrow(data[data$year == "2014", ])` ;
+
+
+Figure. BMI distribution by year
+```{r}
+  
+  ggplot(data, aes(x = bmi)) +
+    geom_histogram(fill = viridis(1, begin = 0.5)) +
+    facet_wrap(~year, ncol = 1) +
+    theme_minimal() +
+    xlab("BMI (km/m2)") +
+    ylab("n")
+    
+```
+
+Table. Regression of mean log(bmi) on year. 
+```{r}
+
+  pander(lm(log(bmi) ~ factor(year), data = data))
+  
+```
+
+There is actually a small descrease (~4%) in the (geometric) mean of BMI in 2015 and 2016 vs 2014. 
+
+Figure. Percentage of moms at each BMI category. 
+```{r bmi_cat_year}
+
+  ggplot(filter(data, !is.na(bmi_class)), aes(x = year, fill = bmi_class)) +
+    geom_bar(position = "fill") +
+    scale_y_continuous(labels = scales::percent) +
+    theme_minimal() +
+    xlab("") +
+    ylab("n") +
+    scale_fill_viridis("", discrete = TRUE, option = "D")
+
+```
+
+Figure. % body fat distribution by year
+
+Missing BF values = `r table(is.na(data$body_fat_percentage))["TRUE"]` / `r nrow(data)`.
+```{r}
+  
+  ggplot(data, aes(x = body_fat_percentage)) +
+    geom_histogram(fill = viridis(1, begin = 0.5)) +
+    facet_wrap(~year, ncol = 1) +
+    theme_minimal() +
+    xlab("% Bodyfat") +
+    ylab("n")
+    
+```
+
+## Gestational Week of GDM diagnosis
+
+Missing values for gestational week of GDM diagnosis:
+2016 - `r table(is.na(data[data$year == "2016", ]$gdm_gstwks))["TRUE"]`/ `r nrow(data[data$year == "2016", ])` ;
+2015 - `r table(is.na(data[data$year == "2015", ]$gdm_gstwks))["TRUE"]` / `r nrow(data[data$year == "2015", ])` ;
+2014 - `r table(is.na(data[data$year == "2014", ]$gdm_gstwks))["TRUE"]` / `r nrow(data[data$year == "2014", ])` ;
+
+In the future, these values should be entered into 2 columns, Week and Day, rather than "Week+Day".
+
+#### Figure. Distribution of gestational week of GDM diagnosis by year
+```{r gstwks_year}
+  
+  ggplot(data, aes(x = gtt_gstweeks)) +
+    geom_histogram(fill = viridis(1, begin = 0.5)) +
+    facet_wrap(~year, ncol = 1) +
+    theme_minimal() +
+    xlab("Weeks Gestation at GDM Diagnosis") +
+    ylab("n")
+    
+```
+
+#### Figure. Percentage of women diagnosed with GDM after week 30, by year
+```{r}
+
+  ggplot(filter(data, !is.na(gdm_over30wks)), aes(x = year, fill = gdm_over30wks)) +
+    geom_bar(position = "fill") +
+    scale_y_continuous(labels = scales::percent) +
+    theme_minimal() +
+    xlab("") +
+    ylab("n") +
+    scale_fill_viridis("GDM diagnosis after 30 GW", 
+                       discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey")
+    
+```
+
+Missing values for GTT location:
+2016 - `r table(is.na(data[data$year == "2016", ]$gtt_location))["TRUE"]`/ `r nrow(data[data$year == "2016", ])` ;
+2015 - `r table(is.na(data[data$year == "2015", ]$gtt_location))["TRUE"]` / `r nrow(data[data$year == "2015", ])` ;
+2014 - `r table(is.na(data[data$year == "2014", ]$gtt_location))["TRUE"]` / `r nrow(data[data$year == "2014", ])` ;
+
+#### Figure. Distribution of gestational week of GDM diagnosis by location
+```{r}
+  
+  ggplot(data, aes(x = gtt_gstweeks)) +
+    geom_histogram(fill = viridis(1, begin = 0.5)) +
+    facet_wrap(~gtt_location, ncol = 1) +
+    theme_minimal() +
+    xlab("Weeks Gestation at GDM Diagnosis") +
+    ylab("n")
+    
+```
+
+#### Figure. Percentage of women diagnosed with GDM after week 30, by location of GTT
+```{r}
+
+  ggplot(filter(data, !is.na(gdm_over30wks)), 
+         aes(x = gtt_location, fill = gdm_over30wks)) +
+    geom_bar(position = "fill") +
+    scale_y_continuous(labels = scales::percent) +
+    theme_minimal() +
+    xlab("") +
+    ylab("n") +
+    scale_fill_viridis("GDM diagnosis after 30 GW", 
+                       discrete = TRUE, option = "D", 
+                       direction = -1, end = 0.75, na.value = "grey")
+    
+```
+
+## 6. Treatment modality- % diet/% metformin/% insulin and again changes over the years- how many seen by endocrinologist
+
+## 7. Mean week of delivery (for whole group, any change over the years)
+
+#### Figure. Weeks gestation at delivery
+
+```{r}
+  
+  ggplot(data, aes(x = del_gstdays/7)) +
+    geom_histogram(fill = viridis(1, begin = 0.5)) +
+    facet_wrap(~year, ncol = 1) +
+    theme_minimal() +
+    xlab("Weeks gestation at delivery") +
+    ylab("n")
+    
+```
+
+
+## Appendix 1 - Ethnicity and Nationality
+
+### Ethnicity/Nationality
+
+#### Figure. Recorded ethnicities
+```{r}
+
+  filter(data, !is.na(ethnicity)) %>%
+  group_by(ethnicity) %>% 
+    summarise(n = n()) %>% 
+    mutate(ethnicity = reorder(factor(ethnicity), n)) %>%
+  ggplot(aes(x = ethnicity, fill = ethnicity, y = n)) +
+    geom_bar(stat = "identity") +
+    theme_minimal() +
+    scale_fill_viridis(guide = FALSE, discrete = TRUE) +
+    coord_flip() +
+    xlab("Recorded Ethnicity")
+  
+
+```
+
+Table. Recorded ethnicities
+```{r}
+
+  knitr::kable(table(data$ethnicity))
+
+```
+
+#### Table. Recorded nationalities
+```{r}
+
+  knitr::kable(table(data$nationality))
+
+```
+
+
+
